@@ -291,6 +291,9 @@ public class HeadsetStateMachine extends StateMachine {
     private HashMap<BluetoothDevice, Integer> mA2dpPlayState =
                                           new HashMap<BluetoothDevice, Integer>();
 
+    private static final int[] CONNECTING_CONNECTED_STATES =
+        {BluetoothProfile.STATE_CONNECTING, BluetoothProfile.STATE_CONNECTED};
+
     // Keys are AT commands, and values are the company IDs.
     private static final Map<String, Integer> VENDOR_SPECIFIC_AT_COMMAND_COMPANY_ID;
 
@@ -725,6 +728,9 @@ public class HeadsetStateMachine extends StateMachine {
         public boolean processMessage(Message message) {
             switch (message.what) {
                 case CONNECT:
+                    //Since we are about to connect, let’s remove any pending
+                    //connection messages from the queue.”
+                    removeMessages(CONNECT);
                     BluetoothDevice device = (BluetoothDevice) message.obj;
                     stateLogD("Connecting to " + device);
                     if (!mDevice.equals(device)) {
@@ -739,6 +745,18 @@ public class HeadsetStateMachine extends StateMachine {
                         retryConnectCount = 0;
                         break;
                     }
+
+                    List<BluetoothDevice> connectingConnectedDevices =
+                        mHeadsetService.
+                            getDevicesMatchingConnectionStates(CONNECTING_CONNECTED_STATES);
+
+                    if (retryConnectCount == 1 && !mHeadsetService.isConnectionAllowed(device,
+                                                   connectingConnectedDevices)) {
+                        stateLogE("CONNECT not allowed(" + device + ")");
+                        retryConnectCount = 0;
+                        break;
+                    }
+
                     if (!mNativeInterface.connectHfp(device)) {
                         stateLogE("CONNECT failed for connectHfp(" + device + ")");
                         // No state transition is involved, fire broadcast immediately
@@ -1493,6 +1511,7 @@ public class HeadsetStateMachine extends StateMachine {
                 // state. This is to prevent auto connect attempts from disconnecting
                 // devices that previously successfully connected.
                 removeDeferredMessages(CONNECT);
+                removeMessages(CONNECT);
             }
             broadcastStateTransitions();
             DeviceProfileMapIntf dpm = DeviceProfileMapIntf.getDeviceProfileMapInstance();
